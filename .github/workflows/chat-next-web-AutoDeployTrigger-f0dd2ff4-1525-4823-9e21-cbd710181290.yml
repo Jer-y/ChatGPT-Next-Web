@@ -1,0 +1,60 @@
+name: Trigger auto deployment for chat-next-web
+
+# When this action will be executed
+on:
+  # Automatically trigger it when detected changes in repo
+  push:
+    branches: 
+      [ main ]
+    paths:
+    - '**'
+    - '.github/workflows/chat-next-web-AutoDeployTrigger-f0dd2ff4-1525-4823-9e21-cbd710181290.yml'
+
+  # Allow mannually trigger 
+  workflow_dispatch:      
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout to the branch
+        uses: actions/checkout@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Log in to container registry
+        uses: docker/login-action@v1
+        with:
+          registry: astasia.azurecr.io
+          username: ${{ secrets.CHATNEXTWEB_REGISTRY_USERNAME }}
+          password: ${{ secrets.CHATNEXTWEB_REGISTRY_PASSWORD }}
+
+      - name: Build and push container image to registry
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          tags: astasia.azurecr.io/chat-next-web:${{ github.sha }}
+          file: ./Dockerfile
+          context: ./
+
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.CHATNEXTWEB_AZURE_CREDENTIALS }}
+
+
+      - name: Deploy to containerapp
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            az config set extension.use_dynamic_install=yes_without_prompt
+            az containerapp registry set -n chat-next-web -g Chat-RG --server astasia.azurecr.io --username  ${{ secrets.CHATNEXTWEB_REGISTRY_USERNAME }} --password ${{ secrets.CHATNEXTWEB_REGISTRY_PASSWORD }}
+            az containerapp update -n chat-next-web -g Chat-RG --image astasia.azurecr.io/chat-next-web:${{ github.sha }}
